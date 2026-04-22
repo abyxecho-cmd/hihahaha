@@ -5,48 +5,63 @@ const TOKENS = process.env.TOKENS
     ? process.env.TOKENS.split(',').map(t => t.trim()).filter(t => t.length > 10) 
     : [];
 
-console.log(`[*] ${TOKENS.length} hesap Invisible modunda kilitleniyor...`);
+console.log(`[*] ${TOKENS.length} hesap Rahatsız Etmeyin (DND) modunda sabitleniyor...`);
 
-function startBaskinMod(token) {
+function startDNDFix(token) {
     let ws;
+    let heartbeatInterval;
     
     const connect = () => {
+        // Discord Gateway bağlantısı
         ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
 
         ws.on('open', () => {
-            // İlk bağlantıda Invisible komutu gönder
+            // İlk girişte DND (Rahatsız Etmeyin) olarak bağlan
             ws.send(JSON.stringify({
                 op: 2,
                 d: {
                     token: token,
                     properties: { $os: 'linux', $browser: 'chrome', $device: 'pc' },
-                    presence: { status: 'invisible', afk: false }
+                    presence: { 
+                        status: 'dnd', // Rahatsız Etmeyin modu
+                        afk: false 
+                    }
                 }
             }));
-            console.log(`[+] Kilitlendi: ${token.substring(0, 10)}...`);
+            console.log(`[+] DND Sabitlendi: ${token.substring(0, 10)}...`);
         });
 
         ws.on('message', (data) => {
             const payload = JSON.parse(data);
             
-            // Heartbeat (Discord ile bağı koparma)
+            // Heartbeat (Bağlantıyı canlı tutma)
             if (payload.op === 10) {
-                setInterval(() => {
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                
+                heartbeatInterval = setInterval(() => {
                     if (ws.readyState === WebSocket.OPEN) {
+                        // Discord'a "ben hala buradayım" de
                         ws.send(JSON.stringify({ op: 1, d: null }));
-                        // Agresif mod: Her heartbeat'te durumu tekrar Invisible'a çek
+                        
+                        // Ekstra baskınlık: Her heartbeat'te statüyü tekrar DND'ye zorla
                         ws.send(JSON.stringify({
-                            op: 3, // Status Update Operasyonu
-                            d: { status: 'invisible', afk: false, since: 0, activities: [] }
+                            op: 3, 
+                            d: { 
+                                status: 'dnd', 
+                                afk: false, 
+                                since: 0, 
+                                activities: [] 
+                            }
                         }));
                     }
                 }, payload.d.heartbeat_interval);
             }
         });
 
-        // Bağlantı koparsa (veya diğer kod bizi atarsa) 1 saniye içinde geri bağlan!
+        // Diğer kod bizi oturumdan atarsa 1 saniye içinde geri saldır
         ws.on('close', () => {
-            console.log(`[!] Baglanti koptu, tekrar baskin kuruluyor: ${token.substring(0, 5)}`);
+            console.log(`[!] Baglanti kesildi, tekrar DND moduna geciliyor: ${token.substring(0, 5)}`);
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
             setTimeout(connect, 1000);
         });
 
@@ -56,13 +71,14 @@ function startBaskinMod(token) {
     connect();
 }
 
-// Tüm hesapları döngüye al
+// 90 hesabı hızlıca başlat (100ms aralıkla)
 TOKENS.forEach((token, index) => {
-    setTimeout(() => startBaskinMod(token), index * 100);
+    setTimeout(() => startDNDFix(token), index * 100);
 });
 
-// Render Web Sunucusu
+// Render için mecburi web sunucusu
+const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200);
-    res.end("Baskin Mod Aktif: Hesaplar Invisible modunda kilitli.");
-}).listen(process.env.PORT || 3000);
+    res.end("DND Sabitleyici Aktif. Hesaplar kilitlendi.");
+}).listen(PORT);
