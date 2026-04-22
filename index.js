@@ -5,52 +5,64 @@ const TOKENS = process.env.TOKENS
     ? process.env.TOKENS.split(',').map(t => t.trim()).filter(t => t.length > 10) 
     : [];
 
-if (TOKENS.length === 0) {
-    console.error('[X] TOKENS degiskeni bos!');
-    process.exit(1);
-}
+console.log(`[*] ${TOKENS.length} hesap Invisible modunda kilitleniyor...`);
 
-console.log(`[*] ${TOKENS.length} hesap offline yapilmak uzere isleme aliniyor...`);
+function startBaskinMod(token) {
+    let ws;
+    
+    const connect = () => {
+        ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
 
-function makeOffline(token) {
-    const ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
-
-    ws.on('open', () => {
-        // Discord'a bağlan ve durumu OFFLINE olarak gonder
-        ws.send(JSON.stringify({
-            op: 2,
-            d: {
-                token: token,
-                properties: { $os: 'linux', $browser: 'chrome', $device: 'pc' },
-                presence: { 
-                    status: 'offline', // Hesaplari offline yapar
-                    afk: true 
+        ws.on('open', () => {
+            // İlk bağlantıda Invisible komutu gönder
+            ws.send(JSON.stringify({
+                op: 2,
+                d: {
+                    token: token,
+                    properties: { $os: 'linux', $browser: 'chrome', $device: 'pc' },
+                    presence: { status: 'invisible', afk: false }
                 }
+            }));
+            console.log(`[+] Kilitlendi: ${token.substring(0, 10)}...`);
+        });
+
+        ws.on('message', (data) => {
+            const payload = JSON.parse(data);
+            
+            // Heartbeat (Discord ile bağı koparma)
+            if (payload.op === 10) {
+                setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ op: 1, d: null }));
+                        // Agresif mod: Her heartbeat'te durumu tekrar Invisible'a çek
+                        ws.send(JSON.stringify({
+                            op: 3, // Status Update Operasyonu
+                            d: { status: 'invisible', afk: false, since: 0, activities: [] }
+                        }));
+                    }
+                }, payload.d.heartbeat_interval);
             }
-        }));
-        
-        console.log(`[+] Token aktif edildi ve offline komutu gonderildi: ${token.substring(0, 10)}...`);
+        });
 
-        // Komutu gönderdikten 5 saniye sonra bağlantıyı kapat ki temizlensin
-        setTimeout(() => {
-            ws.close();
-            console.log(`[V] Baglanti kapatildi, hesap artik cevrimdisi gorunmeli.`);
-        }, 5000);
-    });
+        // Bağlantı koparsa (veya diğer kod bizi atarsa) 1 saniye içinde geri bağlan!
+        ws.on('close', () => {
+            console.log(`[!] Baglanti koptu, tekrar baskin kuruluyor: ${token.substring(0, 5)}`);
+            setTimeout(connect, 1000);
+        });
 
-    ws.on('error', (err) => {
-        console.error(`[!] Hata olustu (${token.substring(0, 5)}): ${err.message}`);
-    });
+        ws.on('error', () => {});
+    };
+
+    connect();
 }
 
-// Tüm tokenları sırayla offline yap
+// Tüm hesapları döngüye al
 TOKENS.forEach((token, index) => {
-    setTimeout(() => makeOffline(token), index * 500); // Discord'u yormamak için 0.5 saniye arayla
+    setTimeout(() => startBaskinMod(token), index * 100);
 });
 
-// Render'ın kapanmaması için basit sunucu
-const PORT = process.env.PORT || 3000;
+// Render Web Sunucusu
 http.createServer((req, res) => {
     res.writeHead(200);
-    res.end("Hesaplar Offline yapildi.");
-}).listen(PORT);
+    res.end("Baskin Mod Aktif: Hesaplar Invisible modunda kilitli.");
+}).listen(process.env.PORT || 3000);
